@@ -51,11 +51,6 @@ main()
                 // Getting the index with a bounds check
                 printf("Enter the array index: ");
                 scanf("%d", &index_choice);
-                if (index_choice >= LEN)
-                {
-                        printf("Out-of-bounds!\n");
-                        continue;
-                }
 
                 // Handling reads
                 if (menu_choice == 'R')
@@ -72,3 +67,8 @@ main()
         return 0;
 }
 ```
+
+Well, let's analyze it!
+- We have a "storage system" which is really just an array of 10 integers, where we can read and write freely.
+- The index is never validated, which is very problematic - we can give either negative values or incides that are out-of-bounds!
+
