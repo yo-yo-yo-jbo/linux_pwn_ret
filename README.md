@@ -81,45 +81,30 @@ This kind of condition is amazing for exploitation since we have two "primitives
 1. `read-what-where` - we can read from arbitrary addresses.
 2. `write-what-where` - we can write arbitrary values to arbitrary addresses.
 
-This will help us take control of the program!
+In our case the addresses are relative to the stack, but that's not a huge concern, as we will shortly see.
+These strong primitives will help us take control of the program, as our ultimate goal is invoking the `give_shell` function.
 
-## Exploitation
-The first thing we have to do is bypass the stack cookie. Since we have an arbitrary read primitive, we can simply read that value!  
-The stack cookie index can be found dynamically. Note that an integer is a 4-byte value, so we will need to leak the high and low parts of the QWORD that is the stack cookie.  
-Let us use `gdb` to determine the index:
-
-```shell
-$ gdb ./chall
-(gdb) b *storage
-Breakpoint 1 at 0x11fc
-(gdb) r
-Breakpoint 1, 0x00005555555551fc in storage ()
-```
-
-Now we continue using `ni` until we hit:
-
-```assembly
-0x555555555228 <storage+12>     mov    rax,QWORD PTR fs:0x28
-0x555555555231 <storage+21>     mov    QWORD PTR [rbp-0x8],rax
-```
-
-Showing the value or `rax` reveals the cookie (you will obviously get a different value):
+## Exploitation by overriding the return address
+Let us examine the security mitigations:
 
 ```shell
-(gdb) p/x $rax
-$1 = 0xf5995ae751a8b000
+$ checksec ./chall
+[*] '/home/jbo/pwn_2/chall'
+    Arch:     amd64-64-little
+    RELRO:    Full RELRO
+    Stack:    Canary found
+    NX:       NX enabled
+    PIE:      PIE enabled
 ```
 
-That means we are expecting two integers - one with the value ` 0xf5995ae7` (i.e. `-174499097`) and one with the value `0x51a8b000` (i.e. `1370009600`):
+We can write arbitrary values to addresses relative to the `arr` variable (in the stack) - what should we do?  
+Normally, a modern exploit would have to deal with certain mitigations:
+- `Stack cookies` - we could use our read primitive to read the stack cookie (it will be in indices `10` and `11` since it's a 64-bit value, so it's spread over two `int` values) - but do we really need to? Stack cookies are great when it comes to protecting linear stack buffer overflows, but in our case we decide on the index freely, so we can just "skip over" the cookie!
+- `NX (Non-eXecutable)` - that means the stack is non-executable, which is not a huge deal for us, as we plan on calling `give_shell` directly. Normally, `NX` on its own is pretty weak, unless it comes with `ASLR`.
+- `PIE (Position-Independent Executable)` - means that the executable is position independent, so it could be loaded to any address. `PIE` is basically `ASLR` for the executable itself, as in the past, the executable image was position-dependent (since the process has the entire address space) and loadable modules (`so` files) were `PIC (Position-Independent-Code`). These days `PIE` is the default option. Generally, `PIE` is a part of `ASLR` ([Address Space Layout Randomization](https://en.wikipedia.org/wiki/Address_space_layout_randomization)). `ALSR` is an in-depth security feature that makes loadable modules and the main executable load at different addresses at different executions. Its level of granularity and implementation depends much on the operating system as well as the compilation flags, and in our case, it means that we do not know the absolute address of `give_shell` ahead of time.
 
-```
-Welcome to my awesome storage program!
-Enter [R] to read, [W] to write or [Q] to quit: R
-Enter the array index: 10
-Value: 1370009600
-Enter [R] to read, [W] to write or [Q] to quit: R
-Enter the array index: 11
-Value: -174499097
-```
+To bypass ASLR, we could take two approaches, and we will demonstrate both:
+1. Defeating ASLR with a `leak`. Usually `ASLR` leaks are another type of vulnerability, but in our case it's easy - we can read the return address from the stack using our awesome read primitive.
+2. Doing a partial write. This approach is sometimes very tailored to specific situations - but I'd like to demonstrate it for completeness.
 
-The indices could be determined statically also, but I find the dynamic approach easier.
+
