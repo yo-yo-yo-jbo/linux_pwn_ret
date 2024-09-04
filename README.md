@@ -103,8 +103,56 @@ Normally, a modern exploit would have to deal with certain mitigations:
 - `NX (Non-eXecutable)` - that means the stack is non-executable, which is not a huge deal for us, as we plan on calling `give_shell` directly. Normally, `NX` on its own is pretty weak, unless it comes with `ASLR`.
 - `PIE (Position-Independent Executable)` - means that the executable is position independent, so it could be loaded to any address. `PIE` is basically `ASLR` for the executable itself, as in the past, the executable image was position-dependent (since the process has the entire address space) and loadable modules (`so` files) were `PIC (Position-Independent-Code`). These days `PIE` is the default option. Generally, `PIE` is a part of `ASLR` ([Address Space Layout Randomization](https://en.wikipedia.org/wiki/Address_space_layout_randomization)). `ALSR` is an in-depth security feature that makes loadable modules and the main executable load at different addresses at different executions. Its level of granularity and implementation depends much on the operating system as well as the compilation flags, and in our case, it means that we do not know the absolute address of `give_shell` ahead of time.
 
-To bypass ASLR, we could take two approaches, and we will demonstrate both:
+To bypass ASLR, we could take two approaches, depending on the primitives we have:
 1. Defeating ASLR with a `leak`. Usually `ASLR` leaks are another type of vulnerability, but in our case it's easy - we can read the return address from the stack using our awesome read primitive.
-2. Doing a partial write. This approach is sometimes very tailored to specific situations - but I'd like to demonstrate it for completeness.
+2. Doing a partial write. This approach is sometimes very tailored to specific situations - in our case we can write in a 4-byte granularity so we won't benefit a lot from it, but we will try to demonstrate that too.
 
+First though - let us find the return address dynamically!
 
+```
+gdb ./chall
+(gdb) b *stroage
+Breakpoint 1 at 0x121c
+(gdb) r
+Breakpoint 1, 0x000055555555521c in storage ()
+(gdb) x/gx $rsp
+0x7fffffffe348: 0x00005555555553c6
+(gdb) u 0x00005555555553c6
+Function "0x00005555555553c6" not defined.
+(gdb) x/3i 0x00005555555553c6
+   0x5555555553c6 <main+18>:    mov    eax,0x0
+   0x5555555553cb <main+23>:    pop    rbp
+   0x5555555553cc <main+24>:    ret
+(gdb) bt
+#0  0x000055555555521c in storage ()
+#1  0x00005555555553c6 in main ()
+```
+
+As you can see, when we enter the `storage` function, the return address is pushed on the stack and can be read from `rsp` - in my run it's `0x00005555555553c6` but due to `ASLR` it might have different values in different runs. We clearly can disassemble a few instructions from that value to see that it's coming from `main`. Another way I show that is by running the `bt` (backtrace) command that clearly shows the return address to `main`. So, if we split `0x00005555555553c6` to two numbers I'd be expecting to see `1431655366` (which is `0x555553c6`) and `21845` (which is `0x5555`). We could either conclude statically or play around and conclude this value lives in indices `14` and `15`:
+
+```
+Enter [R] to read, [W] to write or [Q] to quit: R
+Enter the array index: 14
+Value: 1431655366
+Enter [R] to read, [W] to write or [Q] to quit: R
+Enter the array index: 15
+Value: 21845
+```
+
+That's awesome, since reading the return value lets us conclude the position of all code in the main module - `main` as well as `give_shell`!
+Let's examine:
+
+```
+(gdb) info functions give_shell
+All functions matching regular expression "give_shell":
+
+Non-debugging symbols:
+0x00005555555551e9  give_shell
+```
+
+So, we know the distance between the return address (`0x00005555555553c6`) and `give_shell` (`0x00005555555551e9`) - just take the return address and substract `0x1dd`.  
+So, our strategy is simple:
+1. Read indices `14` and `15` to condlude the return address.
+2. Substract `0x1dd` from it.
+3. Write to indices `14` and `15`.
+4. Trigger (by typing `Q`').
