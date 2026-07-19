@@ -269,7 +269,8 @@ Note how here we just need index `14`. In some case this idea can work amazingly
 
 ## Summary
 This is the second in a very long series on intoruction to binary exploitation.  
-We learned how to override the return address and that in some cases stack cookies could be ineffective. We also learned a bit about `ASLR`, and developed a full exploit. Neat!  
+We learned how to override the return address and that in some cases stack cookies could be ineffective. We also learned a bit about `ASLR`, and developed a full exploit. Neat!
+
 Stay tuned!
 
-Jonathan Bar Or
+Jonathan Bar Or (https://jonathanbaror.com)
